@@ -10,6 +10,7 @@ mov es, ax
 jmp kernel_start
 
 putStr:
+  cld
   lodsb           ; ds:si -> al
   or  al, al      ; al=current character
   jz  exit_putStr ; exit if null terminator found
@@ -35,6 +36,13 @@ putStrLn:
   ret
 
 getStrLn:
+  mov di, input_buffer
+  mov cx, 32
+  xor eax, eax
+  cld
+  .clear_buffer:
+    stosd
+  loop .clear_buffer
   mov di, input_buffer
   get_char:
   xor ax, ax
@@ -71,15 +79,19 @@ commands:
   dw cmd_echo
   db "cpuid      ", 0
   dw cmd_cpuid
-  db "beep       ", 0
-  dw cmd_beep
-  db "shutdown   ", 0
-  dw cmd_shutdown
+  db "reverse    ", 0
+  dw cmd_reverse
+  db "dec2hex    ", 0
+  dw cmd_dec2hex
+  db "hex2dec    ", 0
+  dw cmd_hex2dec
+  db "eval       ", 0
+  dw cmd_eval
 
 
 cmd_echo:
   mov si, input_buffer+4
-  .check_space
+  .check_space:
   inc si
   cmp byte [si], ' '
   je .check_space
@@ -87,11 +99,45 @@ cmd_echo:
   ret
 
 cmd_restart:
+  int 19h
   ret
-cmd_shutdown:
+
+cmd_reverse:
+  ; mov si, input_buffer + 7
+  ; .find_start:
+  ; inc si
+  ; cmp byte [si], ' '
+  ; je .find_start
+  ; cmp byte [si], 0
+  ; je exit_cmd_reverse
+  ; mov al, byte [si]
+  ; mov ah, 0Eh
+  ; int 10h
+
+  ; mov bx, si
+  ; .find_end:
+  ; inc si
+  ; cmp byte [si], 0
+  ; jne .find_end
+  ; dec si
+
+  ; mov al, byte [si]
+  ; mov ah, 0Eh
+  ; int 10h
+
+  ; mov ah, 0Eh
+  ; std
+  ; .print_char:
+  ; lodsb
+  ; int 10h
+  ; cmp si, bx
+  ; je exit_cmd_reverse
+  ; jmp .print_char
+
+  exit_cmd_reverse:
+  cld
   ret
-cmd_beep:
-  ret
+
 cmd_cpuid:
 
   xor eax, eax
@@ -101,6 +147,15 @@ cmd_cpuid:
   mov [cpuid_buffer+8], ecx
   mov si, cpuid_buffer
   call putStrLn
+  ret
+
+cmd_hex2dec:
+  ret
+
+cmd_dec2hex:
+  ret
+
+cmd_eval:
   ret
 
 kernel_start:
@@ -116,10 +171,12 @@ read_command:
   int 10h
 
   call getStrLn
+  cmp byte [input_buffer], 0
+  je read_command
 
   ; TODO handle leading spaces
   mov bx, commands
-  mov cx, 5
+  mov cx, 4         ; set number of commands
   search_command:
   mov si, bx
   mov di, input_buffer
@@ -136,6 +193,8 @@ read_command:
   jmp check_byte
 
   execute_cmd:
+    cmp byte [si], ' '
+    jne no_match
     call word [bx+12]
     jmp read_command
 
