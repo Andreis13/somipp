@@ -102,7 +102,7 @@ xor   bx, bx
 
 read_from_floppy:
   mov ah, 2 ; read sectors
-  mov al, 1 ; number of sectors to read
+  mov al, 3 ; number of sectors to read
   mov ch, 0 ; track number
   mov cl, 2 ; sector number (kernel is in the second sector)
   mov dh, 0 ; head number
