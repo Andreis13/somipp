@@ -223,11 +223,63 @@ print_ax_dec:
   pop bx
   ret
 
-read_ax_hex:
-  ret
+read_ax_with_base:
+  xor cx, cx
+  xor ah, ah
+  .find_end:
+    mov al, [si]
+    cmp al, ' '
+    je procede_to_convert
+    cmp al, 0
+    je procede_to_convert
+    call ascii2hex
+    jc read_error
+    cmp ax, bp
+    jge read_error
+    mov [si], al
+    inc cx
+    inc si
+  jmp .find_end
 
-reat_ax_dec:
+  procede_to_convert:
+  cmp cx, 0
+  je read_error
+  push si
+  dec si
+  xor dx, dx
+  mov ax, 1
+
+  .accumulate:
+  cmp cx, 0
+  je quit_convert_loop
+  push ax ; push power
+  xor ah, ah
+  mov al, [si]
+  pop bx ; pop power
+  push dx
+  mul bx
+  pop dx
+  add dx, ax
+
+  ; compute next power
+  mov ax, bx
+  mov bx, bp ; (hex)
+  push dx
+  mul bx
+  pop dx
+  dec si
+  loop .accumulate
+
+  quit_convert_loop:
+
+  pop si
+  mov ax, dx
+  exit_read:
   ret
+  read_error:
+  stc
+  jmp exit_read
+
 
 ascii2dec:
   cmp al, '0'
@@ -277,6 +329,11 @@ ascii2hex:
   jmp exit_ascii2hex
 
 
+;***************************************;
+;*****      Code for commands      *****;
+;***************************************;
+
+
 cmd_echo:
   mov si, input_buffer+5
   call skip_space
@@ -323,10 +380,10 @@ cmd_reverse:
   jmp .print_char
 
   exit_cmd_reverse:
-  pop di
-  call new_line
-  cld
-  ret
+    pop di
+    call new_line
+    cld
+    ret
 
 cmd_cpuid:
   push bx
@@ -352,91 +409,100 @@ cmd_hex2dec:
   push cx
   mov si, input_buffer+7
   call skip_space
-  call strlen
-  add si, cx
-  dec si
-  xor dx, dx
-  mov ax, 1
 
-  .accumulate:
-  cmp cx, 0
-  je quit_loop_1
-  push ax ; push power
-  xor ah, ah
-  mov al, [si]
-  call ascii2hex
-  pop bx ; pop power
-  push dx
-  mul bx
-  pop dx
-  add dx, ax
-
-  ; compute next power
-  mov ax, bx
-  mov bx, 10h ; (hex)
-  push dx
-  mul bx
-  pop dx
-  dec si
-  loop .accumulate
-
-  quit_loop_1:
-
-
-  mov ax, dx
+  mov bp, 10h
+  call read_ax_with_base
+  jc hex2dec_read_error
   call print_ax_dec
   call new_line
 
-  pop cx
-  ret
+  exit_hex2dec:
+    pop cx
+    ret
+  hex2dec_read_error:
+    mov si, error_msg
+    call put_str_ln
+    jmp exit_hex2dec
 
 cmd_dec2hex:
   push cx
   mov si, input_buffer+7
   call skip_space
-  call strlen
-  add si, cx
-  dec si
-  xor dx, dx
-  mov ax, 1
 
-  .accumulate:
-  cmp cx, 0
-  je quit_loop
-  push ax ; push power
-  xor ah, ah
-  mov al, [si]
-  call ascii2dec
-  pop bx ; pop power
-  push dx
-  mul bx
-  pop dx
-  add dx, ax
-
-  ; compute next power
-  mov ax, bx
-  mov bx, 10 ; (decimal)
-  push dx
-  mul bx
-  pop dx
-  dec si
-  loop .accumulate
-
-  quit_loop:
-
-  mov ax, dx
+  mov bp, 10
+  call read_ax_with_base
+  jc dec2hex_read_error
   call print_ax_hex
   call new_line
-  pop cx
+
+  exit_dec2hex:
+    pop cx
+    ret
+  dec2hex_read_error:
+    mov si, error_msg
+    call put_str_ln
+    jmp exit_dec2hex
+
+push_operand:
+  mov [di], ax
+  add di, 2
+  ret
+
+pop_operand:
+  sub di, 2
+  mov ax, [di]
+  mov word [di], 0
   ret
 
 cmd_eval:
-  ret
+  mov si, input_buffer+4
+  mov di, eval_stack
+  eval_cycle:
+    call skip_space
+    cmp byte [si], 0
+    je exit_eval_cycle
+    cmp byte [si], '+'
+    jne check_if_minus
+    inc si
+    call pop_operand
+    mov dx, ax
+    call pop_operand
+    add ax, dx
+    call push_operand
+    jmp eval_cycle
 
-test_stack:
-  mov ax, sp
-  call print_ax_hex
-  ret
+    check_if_minus:
+    cmp byte [si], '-'
+    jne continue_eval
+    inc si
+    call pop_operand
+    mov dx, ax
+    call pop_operand
+    sub ax, dx
+    call push_operand
+    jmp eval_cycle
+
+    continue_eval:
+    mov bp, 10
+    call read_ax_with_base
+    call push_operand
+  jmp eval_cycle
+
+  exit_eval_cycle:
+    cmp di, eval_stack
+    je exit_eval
+    call pop_operand
+    call print_ax_dec
+
+  exit_eval:
+    call new_line
+    ret
+
+
+
+;****************************************;
+;*****      Kernel entry point      *****;
+;****************************************;
 
 kernel_start:
 
@@ -476,7 +542,7 @@ read_command:
   execute_cmd:
     cmp byte [si], ' '
     jne no_match
-    call word [bx+12]
+    call word [bx+12] ; call the corresponding procedures in case of a match
     jmp read_command
 
   no_match:
@@ -496,11 +562,12 @@ hlt
 
 k_msg db "Kernel loaded!", 0
 restart_msg db "Restarting", 0
-error_msg db "   Error!", 0
+error_msg db "Error!", 0
 unknown_cmd_msg db "Unknown command!", 0
 input_buffer times 128 db 0
 output_buffer times 128 db 0
 convert_buffer times 16 db 0
+eval_stack times 64 db 0
 
 commands:
   db "restart    ", 0
@@ -517,6 +584,7 @@ commands:
   dw cmd_hex2dec
   db "eval       ", 0
   dw cmd_eval
+
 
 
 
