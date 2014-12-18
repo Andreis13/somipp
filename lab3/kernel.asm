@@ -15,19 +15,19 @@ mov sp, ax
 
 jmp kernel_start
 
-putStr:
+put_str:
   cld
   lodsb           ; ds:si -> al
   or  al, al      ; al=current character
-  jz  exit_putStr ; exit if null terminator found
+  jz  exit_put_str ; exit if null terminator found
   mov ah, 0Eh     ; print char in al in teletype mode
   int 10h
-  jmp putStr
-exit_putStr:
+  jmp put_str
+exit_put_str:
   ret
 
 
-newLine:
+new_line:
   mov al, 0Dh
   mov ah, 0Eh
   int 10h
@@ -36,12 +36,12 @@ newLine:
   ret
 
 
-putStrLn:
-  call putStr
-  call newLine
+put_str_ln:
+  call put_str
+  call new_line
   ret
 
-getStrLn:
+get_str_ln:
   call clear_input_buffer
   cld
   mov di, input_buffer
@@ -49,7 +49,7 @@ getStrLn:
   xor ax, ax
   int 16h
   cmp al, 0Dh ; check carriage return
-  je exit_getStrLn
+  je exit_get_str_ln
   cmp al, 08h ; check backspace
   je handle_backspace
   cmp al, 20h ; check lower bound of printable characters
@@ -74,10 +74,10 @@ getStrLn:
     int 10h
     jmp get_char
 
-  exit_getStrLn:
+  exit_get_str_ln:
     mov al, 0
     stosb
-    call newLine
+    call new_line
     ret
 
 
@@ -114,15 +114,19 @@ clear_buffer:
   ret
 
 clear_input_buffer:
+  push ax
   mov ax, 128
   mov di, input_buffer
   call clear_buffer
+  pop ax
   ret
 
 clear_output_buffer:
+  push ax
   mov ax, 128
   mov di, output_buffer
   call clear_buffer
+  pop ax
   ret
 
 sleep_1_sec:
@@ -149,15 +153,15 @@ sleep_1_sec:
   pop bx
   ret
 
-adjustHexChar:
+adjust_hex_char:
   cmp al, 9
-  jle exit_adjustHexChar
+  jle exit_adjust_hex_char
   add al, 7
-  exit_adjustHexChar:
+  exit_adjust_hex_char:
   add al, 30h
   ret
 
-printAX:
+print_ax_hex:
   push ax
   push bx
   mov bx, ax
@@ -166,26 +170,63 @@ printAX:
 
   mov al, bh
   shr al, 4
-  call adjustHexChar
+  call adjust_hex_char
   int 10h
 
   mov al, bh
   and al, 0Fh
-  call adjustHexChar
+  call adjust_hex_char
   int 10h
 
   mov al, bl
   shr al, 4
-  call adjustHexChar
+  call adjust_hex_char
   int 10h
 
   mov al, bl
   and al, 0Fh
-  call adjustHexChar
+  call adjust_hex_char
   int 10h
 
   pop bx
   pop ax
+  ret
+
+print_ax_dec:
+  push bx
+  push dx
+  push di
+  xor dx, dx
+  call clear_output_buffer
+  mov di, output_buffer
+  mov bx, 10 ; (decimal)
+  .make_division:
+    div bx
+    mov [di], dl
+    inc di
+    xor dx, dx
+    cmp ax, 0
+  jne .make_division
+
+
+  .print_char:
+    dec di
+    mov al, [di]
+    call adjust_hex_char
+    mov ah, 0Eh
+    int 10h
+    cmp di, output_buffer
+  jg .print_char
+
+  pop di
+  pop dx
+  pop bx
+  ret
+
+read_ax_hex:
+  ret
+
+reat_ax_dec:
   ret
 
 ascii2dec:
@@ -239,12 +280,12 @@ ascii2hex:
 cmd_echo:
   mov si, input_buffer+5
   call skip_space
-  call putStrLn
+  call put_str_ln
   ret
 
 cmd_restart:
   mov si, restart_msg
-  call putStr
+  call put_str
   mov cx, 3
   .print_dot:
     call sleep_1_sec
@@ -283,7 +324,7 @@ cmd_reverse:
 
   exit_cmd_reverse:
   pop di
-  call newLine
+  call new_line
   cld
   ret
 
@@ -300,7 +341,7 @@ cmd_cpuid:
   mov [output_buffer+4], edx
   mov [output_buffer+8], ecx
   mov si, output_buffer
-  call putStrLn
+  call put_str_ln
 
   pop dx
   pop cx
@@ -309,7 +350,6 @@ cmd_cpuid:
 
 cmd_hex2dec:
   push cx
-  ;call clear_output_buffer
   mov si, input_buffer+7
   call skip_space
   call strlen
@@ -342,29 +382,10 @@ cmd_hex2dec:
 
   quit_loop_1:
 
-  mov di, output_buffer
-  mov bx, 10 ; (decimal)
+
   mov ax, dx
-  xor dx, dx
-  .make_division:
-    div bx
-    mov [di], dl
-    inc di
-    xor dx, dx
-    cmp ax, 0
-  jne .make_division
-
-
-  .print_char:
-    dec di
-    mov al, [di]
-    call adjustHexChar
-    mov ah, 0Eh
-    int 10h
-    cmp di, output_buffer
-  jg .print_char
-
-  call newLine
+  call print_ax_dec
+  call new_line
 
   pop cx
   ret
@@ -404,8 +425,8 @@ cmd_dec2hex:
   quit_loop:
 
   mov ax, dx
-  call printAX
-  call newLine
+  call print_ax_hex
+  call new_line
   pop cx
   ret
 
@@ -414,13 +435,13 @@ cmd_eval:
 
 test_stack:
   mov ax, sp
-  call printAX
+  call print_ax_hex
   ret
 
 kernel_start:
 
 mov si, k_msg
-call putStrLn
+call put_str_ln
 
 
 read_command:
@@ -430,7 +451,7 @@ read_command:
   mov al, ' '
   int 10h
 
-  call getStrLn
+  call get_str_ln
   cmp byte [input_buffer], 0
   je read_command
 
@@ -464,7 +485,7 @@ read_command:
 
   unknown_cmd:
   mov si, unknown_cmd_msg
-  call putStrLn
+  call put_str_ln
 
 jmp read_command
 
